@@ -25,3 +25,5 @@ yarn-error.log*
 # local env files (Law 4: Secret Isolation)
 .env*.local
 .env
+
+.vercel
