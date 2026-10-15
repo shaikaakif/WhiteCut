@@ -36,7 +36,7 @@ import {
 export default function WhiteCutApp() {
   // Config & API Keys (BYOK - Law 4 Compliant)
   const [apiKey, setApiKey] = useState<string>('');
-  const [model, setModel] = useState<string>('gemini-3.8-flash');
+  const [model, setModel] = useState<string>('gemini-3.7-flash');
   const [showSettingsModal, setShowSettingsModal] = useState<boolean>(false);
 
   // Video Input & Preferences
@@ -72,11 +72,11 @@ export default function WhiteCutApp() {
   // Load API key from env or localStorage safely on mount
   useEffect(() => {
     const savedKey = localStorage.getItem('whitecut_gemini_key') || process.env.NEXT_PUBLIC_GEMINI_API_KEY || '';
-    let savedModel = localStorage.getItem('whitecut_gemini_model') || process.env.NEXT_PUBLIC_GEMINI_MODEL || 'gemini-3.8-flash';
-    // Auto-migrate from deprecated 2.5/1.5 models
-    if (savedModel === 'gemini-2.5-flash' || savedModel === 'gemini-1.5-flash' || savedModel === 'gemini-2.0-flash') {
-      savedModel = 'gemini-3.8-flash';
-      localStorage.setItem('whitecut_gemini_model', 'gemini-3.8-flash');
+    let savedModel = localStorage.getItem('whitecut_gemini_model') || process.env.NEXT_PUBLIC_GEMINI_MODEL || 'gemini-3.7-flash';
+    // Auto-migrate from overloaded or deprecated models
+    if (savedModel === 'gemini-3.8-flash' || savedModel === 'gemini-2.5-flash' || savedModel === 'gemini-1.5-flash' || savedModel === 'gemini-2.0-flash') {
+      savedModel = 'gemini-3.7-flash';
+      localStorage.setItem('whitecut_gemini_model', 'gemini-3.7-flash');
     }
     setApiKey(savedKey);
     setModel(savedModel);
@@ -361,9 +361,9 @@ export default function WhiteCutApp() {
                   onChange={(e) => setModel(e.target.value)}
                   className="w-full bg-stone-950 border border-stone-800 rounded-xl px-3.5 py-2.5 text-xs font-mono text-white focus:outline-none focus:border-terracotta"
                 >
-                  <option value="gemini-3.8-flash">gemini-3.8-flash (Recommended & Active)</option>
-                  <option value="gemini-2.5-pro">gemini-2.5-pro</option>
-                  <option value="gemini-flash-latest">gemini-flash-latest</option>
+                  <option value="gemini-3.7-flash">gemini-3.7-flash (Fast & Stable - Recommended)</option>
+                  <option value="gemini-3.1-flash-lite">gemini-3.1-flash-lite (High Speed)</option>
+                  <option value="gemini-3.8-flash">gemini-3.8-flash (Preview)</option>
                 </select>
               </div>
             </div>

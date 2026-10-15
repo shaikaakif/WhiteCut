@@ -1,14 +1,20 @@
 /**
  * Gemini Transcriber Service
- * Connects to Gemini 2.5 Flash API to process downsampled audio buffers
- * and output precise, millisecond word-by-word timestamps converted strictly
- * to phonetic Latin "Hinglish" script, guided by the creator's prompt.
+ * Connects to Gemini Flash API with automatic multi-model failover
+ * to guarantee resilience against 503 (high demand) or 404 (retired model) errors.
  */
 
 import { WordTimestamp, TranscriptionPayload } from '@/types';
 
-const DEFAULT_MODEL = process.env.NEXT_PUBLIC_GEMINI_MODEL || 'gemini-3.8-flash';
+const DEFAULT_MODEL = process.env.NEXT_PUBLIC_GEMINI_MODEL || 'gemini-3.7-flash';
 const DEFAULT_KEY = process.env.NEXT_PUBLIC_GEMINI_API_KEY || '';
+
+// Ordered fallback models: Fast & Stable -> High-Speed Lite -> Preview
+const RESILIENT_MODELS = [
+  'gemini-3.7-flash',
+  'gemini-3.1-flash-lite',
+  'gemini-3.8-flash',
+];
 
 export async function transcribeAudioWithGemini(
   base64Audio: string,
@@ -20,13 +26,19 @@ export async function transcribeAudioWithGemini(
   }
 ): Promise<TranscriptionPayload> {
   const apiKey = options?.apiKey?.trim() || DEFAULT_KEY;
-  const model = options?.model || DEFAULT_MODEL;
+  const initialModel = options?.model || DEFAULT_MODEL;
   const mimeType = options?.mimeType || 'audio/wav';
   const userPrompt = options?.userPrompt?.trim();
 
   if (!apiKey) {
     throw new Error('Gemini API Key is missing. Please configure your key in Settings (gear icon).');
   }
+
+  // Build model priority queue starting with chosen model
+  const modelsToTry = [
+    initialModel,
+    ...RESILIENT_MODELS.filter((m) => m !== initialModel),
+  ];
 
   const promptText = `You are WhiteCut AI — an elite vertical video editor and localization engineer.
 Analyze the provided speech audio track and construct millisecond-accurate word timestamps and editorial metadata.
@@ -48,101 +60,114 @@ OUTPUT FORMAT: Return STRICTLY valid JSON conforming to this schema without mark
   ]
 }`;
 
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+  let lastError: Error | null = null;
 
-  const requestBody = {
-    contents: [
-      {
-        role: 'user',
-        parts: [
-          { text: promptText },
+  for (const currentModel of modelsToTry) {
+    try {
+      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${currentModel}:generateContent?key=${apiKey}`;
+
+      const requestBody = {
+        contents: [
           {
-            inlineData: {
-              mimeType,
-              data: base64Audio,
-            },
+            role: 'user',
+            parts: [
+              { text: promptText },
+              {
+                inlineData: {
+                  mimeType,
+                  data: base64Audio,
+                },
+              },
+            ],
           },
         ],
-      },
-    ],
-    generationConfig: {
-      temperature: 0.2,
-      responseMimeType: 'application/json',
-    },
-  };
+        generationConfig: {
+          temperature: 0.2,
+          responseMimeType: 'application/json',
+        },
+      };
 
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(requestBody),
-  });
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody),
+      });
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    let parsedMessage = errorText;
-    try {
-      const errObj = JSON.parse(errorText);
-      parsedMessage = errObj.error?.message || errorText;
-    } catch {
-      // Keep raw message
+      if (!response.ok) {
+        const errorText = await response.text();
+        let parsedMessage = errorText;
+        try {
+          const errObj = JSON.parse(errorText);
+          parsedMessage = errObj.error?.message || errorText;
+        } catch {
+          // Keep raw
+        }
+
+        // If 503 (high demand) or 404 (retired model), throw to try next model in queue
+        if (response.status === 503 || response.status === 404 || response.status === 429) {
+          console.warn(`Model ${currentModel} returned ${response.status} (${parsedMessage}). Trying failover model...`);
+          throw new Error(`Model ${currentModel} unavailable (${response.status}): ${parsedMessage}`);
+        }
+
+        throw new Error(`Gemini API Error (${response.status}): ${parsedMessage}`);
+      }
+
+      const result = await response.json();
+      const rawContent = result.candidates?.[0]?.content?.parts?.[0]?.text;
+
+      if (!rawContent) {
+        throw new Error(`No content from model ${currentModel}`);
+      }
+
+      const cleanedJson = rawContent
+        .replace(/^```json\s*/i, '')
+        .replace(/^```\s*/i, '')
+        .replace(/```\s*$/i, '')
+        .trim();
+
+      let words: WordTimestamp[] = [];
+      let inferredTitle = 'WhiteCut Editorial';
+      let inferredTag = 'THE ARCHIVE - 1952';
+
+      const parsed = JSON.parse(cleanedJson);
+      if (Array.isArray(parsed)) {
+        words = parsed.map((item) => ({
+          word: String(item.word || '').trim(),
+          start: Number(item.start) || 0,
+          end: Number(item.end) || 0,
+        }));
+      } else if (parsed && typeof parsed === 'object') {
+        if (parsed.title) inferredTitle = String(parsed.title);
+        if (parsed.tag) inferredTag = String(parsed.tag);
+        const rawWords = Array.isArray(parsed.words) ? parsed.words : [];
+        words = rawWords.map((item: { word: unknown; start: unknown; end: unknown }) => ({
+          word: String(item.word || '').trim(),
+          start: Number(item.start) || 0,
+          end: Number(item.end) || 0,
+        }));
+      }
+
+      words = words
+        .filter((w) => w.word.length > 0 && w.end >= w.start)
+        .sort((a, b) => a.start - b.start);
+
+      const fullText = words.map((w) => w.word).join(' ');
+      const duration = words.length > 0 ? words[words.length - 1].end : 0;
+
+      return {
+        words,
+        fullText,
+        duration,
+        inferredTitle,
+        inferredTag,
+      };
+    } catch (err: unknown) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      // Continue to next model in queue
     }
-    throw new Error(`Gemini API Error (${response.status}): ${parsedMessage}`);
   }
 
-  const result = await response.json();
-  const rawContent = result.candidates?.[0]?.content?.parts?.[0]?.text;
-
-  if (!rawContent) {
-    throw new Error('No transcription content received from Gemini model.');
-  }
-
-  const cleanedJson = rawContent
-    .replace(/^```json\s*/i, '')
-    .replace(/^```\s*/i, '')
-    .replace(/```\s*$/i, '')
-    .trim();
-
-  let words: WordTimestamp[] = [];
-  let inferredTitle = 'WhiteCut Editorial';
-  let inferredTag = 'THE ARCHIVE - 1952';
-
-  try {
-    const parsed = JSON.parse(cleanedJson);
-    if (Array.isArray(parsed)) {
-      words = parsed.map((item) => ({
-        word: String(item.word || '').trim(),
-        start: Number(item.start) || 0,
-        end: Number(item.end) || 0,
-      }));
-    } else if (parsed && typeof parsed === 'object') {
-      if (parsed.title) inferredTitle = String(parsed.title);
-      if (parsed.tag) inferredTag = String(parsed.tag);
-      const rawWords = Array.isArray(parsed.words) ? parsed.words : [];
-      words = rawWords.map((item: { word: unknown; start: unknown; end: unknown }) => ({
-        word: String(item.word || '').trim(),
-        start: Number(item.start) || 0,
-        end: Number(item.end) || 0,
-      }));
-    }
-  } catch (parseErr) {
-    console.error('Failed to parse Gemini JSON output:', cleanedJson, parseErr);
-    throw new Error('Gemini response could not be parsed into word timestamps.');
-  }
-
-  words = words
-    .filter((w) => w.word.length > 0 && w.end >= w.start)
-    .sort((a, b) => a.start - b.start);
-
-  const fullText = words.map((w) => w.word).join(' ');
-  const duration = words.length > 0 ? words[words.length - 1].end : 0;
-
-  return {
-    words,
-    fullText,
-    duration,
-    inferredTitle,
-    inferredTag,
-  };
+  throw lastError || new Error('All available Gemini models are currently experiencing high demand. Please retry in a few moments.');
 }
