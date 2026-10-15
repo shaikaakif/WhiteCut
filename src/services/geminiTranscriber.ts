@@ -7,7 +7,7 @@
 
 import { WordTimestamp, TranscriptionPayload } from '@/types';
 
-const DEFAULT_MODEL = process.env.NEXT_PUBLIC_GEMINI_MODEL || 'gemini-2.5-flash';
+const DEFAULT_MODEL = process.env.NEXT_PUBLIC_GEMINI_MODEL || 'gemini-3.8-flash';
 const DEFAULT_KEY = process.env.NEXT_PUBLIC_GEMINI_API_KEY || '';
 
 export async function transcribeAudioWithGemini(
