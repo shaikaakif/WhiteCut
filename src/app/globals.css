@@ -1,0 +1,75 @@
+@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600;800&family=Playfair+Display:ital,wght@0,600;0,800;1,600;1,800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-serif: 'Playfair Display', 'Instrument Serif', Georgia, serif;
+  --font-mono: 'JetBrains Mono', Courier, monospace;
+  --font-sans: 'Inter', system-ui, sans-serif;
+  --bg-cream: #F4EFE6;
+  --bg-cream-dark: #EDE7DC;
+  --terracotta: #E06D53;
+  --charcoal: #18181B;
+}
+
+body {
+  background-color: #0c0d0e;
+  color: #ededed;
+  font-family: var(--font-sans);
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Tactile Paper Texture & Grain Overlay */
+.paper-texture {
+  background-color: #F4EFE6;
+  background-image: 
+    radial-gradient(#d3c9b8 0.75px, transparent 0.75px),
+    radial-gradient(#d3c9b8 0.75px, #F4EFE6 0.75px);
+  background-size: 24px 24px;
+  background-position: 0 0, 12px 12px;
+}
+
+/* Blueprint Grid Layer */
+.blueprint-grid {
+  background-size: 20px 20px;
+  background-image: 
+    linear-gradient(to right, rgba(44, 62, 80, 0.08) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(44, 62, 80, 0.08) 1px, transparent 1px);
+}
+
+/* Sticker Cutout Outline Filters */
+.sticker-cutout-white {
+  filter: 
+    drop-shadow(2px 0 0 #ffffff)
+    drop-shadow(-2px 0 0 #ffffff)
+    drop-shadow(0 2px 0 #ffffff)
+    drop-shadow(0 -2px 0 #ffffff)
+    drop-shadow(0 12px 20px rgba(0, 0, 0, 0.35));
+}
+
+.sticker-cutout-terracotta {
+  filter: 
+    drop-shadow(3px 0 0 #E06D53)
+    drop-shadow(-3px 0 0 #E06D53)
+    drop-shadow(0 3px 0 #E06D53)
+    drop-shadow(0 -3px 0 #E06D53)
+    drop-shadow(0 12px 20px rgba(0, 0, 0, 0.35));
+}
+
+.sticker-cutout-gold {
+  filter: 
+    drop-shadow(2px 0 0 #E6B800)
+    drop-shadow(-2px 0 0 #E6B800)
+    drop-shadow(0 2px 0 #E6B800)
+    drop-shadow(0 -2px 0 #E6B800)
+    drop-shadow(0 10px 18px rgba(0, 0, 0, 0.3));
+}
+
+/* Interactive touch target compliance (Law 5) */
+.touch-target {
+  min-height: 48px;
+  min-width: 48px;
+}
