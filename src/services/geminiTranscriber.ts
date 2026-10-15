@@ -2,7 +2,7 @@
  * Gemini Transcriber Service
  * Connects to Gemini 2.5 Flash API to process downsampled audio buffers
  * and output precise, millisecond word-by-word timestamps converted strictly
- * to phonetic Latin "Hinglish" script.
+ * to phonetic Latin "Hinglish" script, guided by the creator's prompt.
  */
 
 import { WordTimestamp, TranscriptionPayload } from '@/types';
@@ -10,34 +10,43 @@ import { WordTimestamp, TranscriptionPayload } from '@/types';
 const DEFAULT_MODEL = process.env.NEXT_PUBLIC_GEMINI_MODEL || 'gemini-2.5-flash';
 const DEFAULT_KEY = process.env.NEXT_PUBLIC_GEMINI_API_KEY || '';
 
-const TRANSCRIPTION_PROMPT = `You are an expert video subtitle editor, kinetic typography specialist, and localization engineer.
-Analyze the provided audio track file and map out high-precision, word-by-word millisecond timestamps.
-
-CRITICAL PROCESSING INSTRUCTIONS:
-1. Language Mapping: Convert ALL spoken Hindi, Urdu, or regional dialect phrases into "Hinglish" phonetic English Latin script (e.g., If the user says "दोस्तो आज हम बात करेंगे", output word objects for: "dosto", "aaj", "hum", "baat", "karenge"). Do not output Devanagari script. Do not modify spoken English words.
-2. Timing Precision: Every word object must capture exact float values (in seconds) for "start" and "end" playback marks matching the source track. Ensure words do not overlap and flow naturally.
-3. Word Granularity: Split compound speech into individual spoken words.
-4. Output Restriction: Return your analysis STRICTLY conforming to this JSON format without markdown code blocks, backticks, or conversational preamble:
-[
-  { "word": "hey", "start": 0.12, "end": 0.45 },
-  { "word": "dosto", "start": 0.51, "end": 0.98 }
-]`;
-
 export async function transcribeAudioWithGemini(
   base64Audio: string,
   options?: {
     apiKey?: string;
     model?: string;
     mimeType?: string;
+    userPrompt?: string;
   }
 ): Promise<TranscriptionPayload> {
   const apiKey = options?.apiKey?.trim() || DEFAULT_KEY;
   const model = options?.model || DEFAULT_MODEL;
   const mimeType = options?.mimeType || 'audio/wav';
+  const userPrompt = options?.userPrompt?.trim();
 
   if (!apiKey) {
-    throw new Error('Gemini API Key is missing. Please provide a valid Gemini API Key.');
+    throw new Error('Gemini API Key is missing. Please configure your key in Settings (gear icon).');
   }
+
+  const promptText = `You are WhiteCut AI — an elite vertical video editor and localization engineer.
+Analyze the provided speech audio track and construct millisecond-accurate word timestamps and editorial metadata.
+
+${userPrompt ? `USER EDITING PROMPT / DIRECTIVE: "${userPrompt}"\nAdapt subtitle pacing, vocabulary, and header aesthetics to match this intent.` : ''}
+
+CRITICAL RULES:
+1. Phonetic Hinglish: If the speaker speaks in Hindi, Urdu, or regional Indian dialects, transliterate strictly into English Latin characters (e.g. "दोस्तो आज हम बात करेंगे" -> "dosto aaj hum baat karenge"). Maintain native spoken English words. Never output Devanagari script.
+2. Word Timestamps: Every word must have accurate start and end float timestamps in seconds.
+3. Editorial Metadata: Generate a punchy 2-4 word editorial title (e.g. "Mastering Focus", "The Lost Blueprint") and a vintage archive badge tag (e.g. "THE ARCHIVE - 1952").
+
+OUTPUT FORMAT: Return STRICTLY valid JSON conforming to this schema without markdown wrappers:
+{
+  "title": "Mastering Focus",
+  "tag": "THE ARCHIVE - 1952",
+  "words": [
+    { "word": "hey", "start": 0.12, "end": 0.45 },
+    { "word": "dosto", "start": 0.51, "end": 0.98 }
+  ]
+}`;
 
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
@@ -46,9 +55,7 @@ export async function transcribeAudioWithGemini(
       {
         role: 'user',
         parts: [
-          {
-            text: TRANSCRIPTION_PROMPT,
-          },
+          { text: promptText },
           {
             inlineData: {
               mimeType,
@@ -59,7 +66,7 @@ export async function transcribeAudioWithGemini(
       },
     ],
     generationConfig: {
-      temperature: 0.1,
+      temperature: 0.2,
       responseMimeType: 'application/json',
     },
   };
@@ -91,7 +98,6 @@ export async function transcribeAudioWithGemini(
     throw new Error('No transcription content received from Gemini model.');
   }
 
-  // Parse JSON response safely (handling edge markdown wrappers if any)
   const cleanedJson = rawContent
     .replace(/^```json\s*/i, '')
     .replace(/^```\s*/i, '')
@@ -99,6 +105,9 @@ export async function transcribeAudioWithGemini(
     .trim();
 
   let words: WordTimestamp[] = [];
+  let inferredTitle = 'WhiteCut Editorial';
+  let inferredTag = 'THE ARCHIVE - 1952';
+
   try {
     const parsed = JSON.parse(cleanedJson);
     if (Array.isArray(parsed)) {
@@ -107,8 +116,11 @@ export async function transcribeAudioWithGemini(
         start: Number(item.start) || 0,
         end: Number(item.end) || 0,
       }));
-    } else if (parsed.words && Array.isArray(parsed.words)) {
-      words = parsed.words.map((item: { word: unknown; start: unknown; end: unknown }) => ({
+    } else if (parsed && typeof parsed === 'object') {
+      if (parsed.title) inferredTitle = String(parsed.title);
+      if (parsed.tag) inferredTag = String(parsed.tag);
+      const rawWords = Array.isArray(parsed.words) ? parsed.words : [];
+      words = rawWords.map((item: { word: unknown; start: unknown; end: unknown }) => ({
         word: String(item.word || '').trim(),
         start: Number(item.start) || 0,
         end: Number(item.end) || 0,
@@ -119,7 +131,6 @@ export async function transcribeAudioWithGemini(
     throw new Error('Gemini response could not be parsed into word timestamps.');
   }
 
-  // Sort and validate words
   words = words
     .filter((w) => w.word.length > 0 && w.end >= w.start)
     .sort((a, b) => a.start - b.start);
@@ -131,5 +142,7 @@ export async function transcribeAudioWithGemini(
     words,
     fullText,
     duration,
+    inferredTitle,
+    inferredTag,
   };
 }

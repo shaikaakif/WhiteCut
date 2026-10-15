@@ -5,16 +5,71 @@
  */
 
 import { Muxer, ArrayBufferTarget } from 'mp4-muxer';
+import { AspectRatio, ExportResolution, ExportFrameRate, ExportBitrate } from '@/types';
 
 export interface RenderProgressCallback {
   (progressPercent: number, statusText: string): void;
+}
+
+export function getExportDimensions(
+  aspectRatio: AspectRatio,
+  resolution: ExportResolution
+): { width: number; height: number } {
+  const baseScale = resolution === '4K' ? 2 : resolution === '2K' ? 1.333 : 1;
+
+  switch (aspectRatio) {
+    case '9:16':
+      return {
+        width: Math.round(1080 * baseScale),
+        height: Math.round(1920 * baseScale),
+      };
+    case '1:1':
+      return {
+        width: Math.round(1080 * baseScale),
+        height: Math.round(1080 * baseScale),
+      };
+    case '16:9':
+      return {
+        width: Math.round(1920 * baseScale),
+        height: Math.round(1080 * baseScale),
+      };
+    case '3:4':
+      return {
+        width: Math.round(1080 * baseScale),
+        height: Math.round(1440 * baseScale),
+      };
+  }
+}
+
+export function getBitrateValue(bitrate: ExportBitrate, resolution: ExportResolution): number {
+  const multiplier = resolution === '4K' ? 3.5 : resolution === '2K' ? 2 : 1;
+  switch (bitrate) {
+    case 'ultra':
+      return Math.round(18_000_000 * multiplier);
+    case 'high':
+      return Math.round(12_000_000 * multiplier);
+    case 'standard':
+    default:
+      return Math.round(8_000_000 * multiplier);
+  }
+}
+
+export function triggerDownload(blob: Blob, filename = 'whitecut-reel.mp4') {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
 }
 
 export async function renderCanvasToMp4(
   canvas: HTMLCanvasElement,
   audioBlob: Blob | null,
   durationSeconds: number,
-  fps: number = 30,
+  fps: ExportFrameRate = 30,
   onProgress?: RenderProgressCallback
 ): Promise<Blob> {
   const width = canvas.width;
@@ -46,16 +101,14 @@ export async function renderCanvasToMp4(
         },
       });
 
-      // Configure H.264 encoder
       videoEncoder.configure({
-        codec: 'avc1.4d002a', // Main profile, Level 4.2
+        codec: 'avc1.4d002a', // H.264
         width,
         height,
-        bitrate: 6_000_000, // 6 Mbps high quality
+        bitrate: 8_000_000,
         framerate: fps,
       });
 
-      // Capture frame by frame
       const frameDurationMicroseconds = (1 / fps) * 1_000_000;
 
       for (let frameIndex = 0; frameIndex < totalFrames; frameIndex++) {
@@ -72,10 +125,9 @@ export async function renderCanvasToMp4(
         encodedFramesCount++;
         if (onProgress) {
           const percent = Math.round((encodedFramesCount / totalFrames) * 90);
-          onProgress(percent, `Encoding frame ${encodedFramesCount} of ${totalFrames}...`);
+          onProgress(percent, `Compiling frame ${encodedFramesCount} of ${totalFrames}...`);
         }
 
-        // Yield to browser event loop
         await new Promise((r) => setTimeout(r, 0));
       }
 
@@ -93,13 +145,10 @@ export async function renderCanvasToMp4(
     }
   }
 
-  // Graceful Fallback: MediaRecorder stream recording
+  // Fallback: MediaRecorder stream recording
   return recordStreamFallback(canvas, audioBlob, durationSeconds, onProgress);
 }
 
-/**
- * Fallback recorder using HTML5 Canvas CaptureStream and MediaRecorder
- */
 function recordStreamFallback(
   canvas: HTMLCanvasElement,
   audioBlob: Blob | null,
@@ -110,7 +159,6 @@ function recordStreamFallback(
     try {
       const stream = canvas.captureStream(30);
 
-      // Mix audio if available
       if (audioBlob) {
         const audioCtx = new AudioContext();
         const arrayBuffer = await audioBlob.arrayBuffer();
@@ -132,7 +180,7 @@ function recordStreamFallback(
 
       const recorder = new MediaRecorder(stream, {
         mimeType,
-        videoBitsPerSecond: 6_000_000,
+        videoBitsPerSecond: 8_000_000,
       });
 
       const chunks: Blob[] = [];
@@ -150,7 +198,6 @@ function recordStreamFallback(
 
       recorder.start(100);
 
-      // Progress reporting loop
       const startTime = Date.now();
       const interval = setInterval(() => {
         const elapsed = (Date.now() - startTime) / 1000;

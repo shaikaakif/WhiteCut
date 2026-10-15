@@ -1,3 +1,8 @@
+export type AspectRatio = '9:16' | '1:1' | '16:9' | '3:4';
+export type ExportResolution = 'HD' | '2K' | '4K';
+export type ExportFrameRate = 24 | 30 | 60;
+export type ExportBitrate = 'standard' | 'high' | 'ultra';
+
 export interface WordTimestamp {
   word: string;
   start: number; // in seconds (float)
@@ -10,38 +15,38 @@ export interface TranscriptionPayload {
   fullText: string;
   duration: number;
   detectedLanguage?: string;
+  inferredTitle?: string;
+  inferredTag?: string;
 }
 
-export type EditorialTheme = 'vox-ashok' | 'jayant-editorial' | 'split-surreal' | 'minimal-monospace';
-
-export interface StickerAsset {
-  id: string;
-  src: string;
-  alt: string;
-  title?: string;
-  archiveDate?: string;
-  outlineColor?: string;
-}
+export type EditorialTheme = 'vox-split' | 'editorial-card' | 'kinetic-focus';
 
 export interface RemotionCompositionProps {
   videoSrc: string;
   transcriptionData: WordTimestamp[];
-  theme: EditorialTheme;
+  theme?: EditorialTheme;
+  aspectRatio?: AspectRatio;
   titleText?: string;
   stepNumber?: number;
   archiveTagText?: string;
   enableGrayscaleFootage?: boolean;
   enablePaperTexture?: boolean;
-  enableSFX?: boolean;
   activeCutoutImage?: string;
-  customHeading?: string;
-  subheading?: string;
+  userPrompt?: string;
+}
+
+export interface ProgressLog {
+  timestamp: string;
+  message: string;
+  status: 'pending' | 'active' | 'done';
 }
 
 export interface RenderState {
-  status: 'idle' | 'extracting-audio' | 'transcribing' | 'ready' | 'rendering' | 'completed' | 'error';
+  status: 'idle' | 'processing' | 'ready' | 'exporting' | 'completed' | 'error';
   progress: number; // 0 to 100
   statusMessage: string;
+  estimatedSecondsLeft: number;
+  logs: ProgressLog[];
   downloadUrl?: string;
   error?: string;
 }
